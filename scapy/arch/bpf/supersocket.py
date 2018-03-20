@@ -11,7 +11,7 @@ from select import select
 import struct
 import time
 
-from scapy.arch.bpf.core import get_dev_bpf, attach_filter
+from scapy.arch.bpf.core import get_dev_bpf, attach_filter, set_monitor_mode
 from scapy.arch.bpf.consts import BIOCGBLEN, BIOCGDLT, BIOCGSTATS, \
     BIOCIMMEDIATE, BIOCPROMISC, BIOCSBLEN, BIOCSETIF, BIOCSHDRCMPLT, \
     BPF_BUFFER_LENGTH, BIOCSDLT, DLT_IEEE802_11_RADIO
@@ -77,15 +77,21 @@ class _L2bpfSocket(SuperSocket):
             self.set_promisc(1)
 
         # Set the interface to monitor mode
-        # Note: - trick from libpcap/pcap-bpf.c - monitor_mode()
-        #       - it only works on OS X 10.5 and later
-        if DARWIN and monitor:
-            dlt_radiotap = struct.pack('I', DLT_IEEE802_11_RADIO)
-            try:
-                fcntl.ioctl(self.ins, BIOCSDLT, dlt_radiotap)
-            except IOError:
-                raise Scapy_Exception("Can't set %s into monitor mode!" %
-                                      self.iface)
+        # Note: tricks from libpcap/pcap-bpf.c - monitor_mode()
+        if monitor:
+            if DARWIN:
+                # Note: it only works on OS X 10.5 and later
+                dlt_radiotap = struct.pack('I', DLT_IEEE802_11_RADIO)
+                try:
+                    fcntl.ioctl(self.ins, BIOCSDLT, dlt_radiotap)
+                except IOError:
+                    raise Scapy_Exception("Can't set %s into monitor mode!" %
+                                          self.iface)
+            elif FREEBSD:
+                # TODO: set if back to False when the socket is closed !
+                set_monitor_mode(self.iface, True)
+            else:
+                warning("802.11 monitor - unsupported *BSD flavor!")
 
         # Don't block on read
         try:

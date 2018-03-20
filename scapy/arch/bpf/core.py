@@ -18,7 +18,7 @@ import socket
 import fcntl
 import struct
 
-from ctypes import cdll, cast, pointer, POINTER, Structure
+from ctypes import cdll, cast, pointer, POINTER
 from ctypes import c_int, c_ulong, c_char_p
 from ctypes.util import find_library
 from scapy.modules.six.moves import range
@@ -195,3 +195,63 @@ def get_working_if():
         # A better interface will be selected later using the routing table
         return LOOPBACK_NAME
     return ifaces[0][0]
+
+
+def _set_monitor_mode(interface_name, enable=True):
+    # From libpcap/pcap-bpf.c - monitor_mode()
+    # Note: it only works on 10.5 and later
+
+    DLT_IEEE802_11_RADIO = 127
+
+def set_monitor_mode(interface_name, enable=True):
+    # From libpcap/pcap-bpf.c - monitor_mode()
+    # Note: it only works on 10.4 and later
+
+    if not interface_name.startswith("en"):
+        return False
+
+    from scapy.arch.common import ifmediareq, ifreq
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0);
+    req = ifmediareq(interface_name.encode(), 0, 0, 0, 0, 0, None)
+    SIOCGIFMEDIA = 0xc02c6938
+    SIOCSIFMEDIA = 0xc0206937
+    IFM_IEEE80211_MONITOR = 0x2000
+    ret = LIBC.ioctl(c_int(sock.fileno()), SIOCGIFMEDIA,
+                     cast(pointer(req), c_char_p))
+    print("START - req.ifm_current = 0%x" % req.ifm_current)
+    if ret < 0:
+        warning("monitor_mode(): can\'t SIOCGIFMEDIA on %s!" % interface_name)
+        return False
+    
+    if req.ifm_count == 0:
+        warning("monitor_mode(): error no media types!")
+        return False
+
+    if enable:
+        media_type = req.ifm_current | IFM_IEEE80211_MONITOR
+    else:
+        media_type = req.ifm_current & ~IFM_IEEE80211_MONITOR
+
+    req = ifreq(interface_name.encode(), media_type)
+    print("SET b - req.ifr_media = 0%x" % req.ifr_media)
+    ret = LIBC.ioctl(c_int(sock.fileno()), SIOCSIFMEDIA,
+                     cast(pointer(req), c_char_p))
+    if ret < 0:
+        print("monitor_mode(): can\'t SIOCSIFMEDIA on %s!" % interface_name)
+        warning("monitor_mode(): can\'t SIOCSIFMEDIA on %s!" % interface_name)
+        return False
+    print("SET a - req.ifr_media = 0%x" % req.ifr_media)
+
+    req = ifmediareq(interface_name.encode(), 0, 0, 0, 0, 0, None)
+    ret = LIBC.ioctl(c_int(sock.fileno()), SIOCGIFMEDIA,
+                     cast(pointer(req), c_char_p))
+    if ret < 0:
+        print("monitor_mode(): can\'t SIOCGIFMEDIA on %s!" % interface_name)
+        warning("monitor_mode(): can\'t SIOCGIFMEDIA on %s!" % interface_name)
+        return False
+    print("END   - req.ifm_current = 0%x" % req.ifm_current)
+
+    # TODO: set DLT to DYLD_LIBRARY_PATH
+
+    sock.close()
+    return True

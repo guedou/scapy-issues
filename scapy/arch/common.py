@@ -11,7 +11,7 @@ import socket
 from fcntl import ioctl
 import os, struct, ctypes
 from ctypes import POINTER, Structure
-from ctypes import c_uint, c_uint32, c_ushort, c_ubyte
+from ctypes import c_uint, c_uint32, c_ushort, c_ubyte, c_char
 from scapy.config import conf
 import scapy.modules.six as six
 
@@ -83,3 +83,17 @@ def get_bpf_pointer(tcpdump_lines):
 
     # Create the BPF program
     return bpf_program(size, bip)
+
+IF_NAMESIZE = 16
+class ifreq(Structure):
+    _fields_ = [("ifr_name", c_char*IF_NAMESIZE),
+                ("ifr_media", c_uint)]
+
+class ifmediareq(Structure):
+    _fields_ = [("ifm_name", c_char*IF_NAMESIZE),
+                ("ifm_current", c_uint),
+                ("ifm_mask", c_uint),
+                ("ifm_status", c_uint),
+                ("ifm_active", c_uint),
+                ("ifm_count", c_uint),
+                ("ifm_ulist", POINTER(c_uint))]
