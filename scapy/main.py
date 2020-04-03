@@ -560,7 +560,7 @@ def interact(mydict=None, argv=None, mybanner=None, loglevel=logging.INFO):
 
         if len(opts[1]) > 0:
             raise getopt.GetoptError(
-                "Too many parameters : [%s]" % " ".join(opts[1])
+                "Too many parameters : [%s] - %s" % (" ".join(opts[1]), argv)
             )
 
     except getopt.GetoptError as msg:
