@@ -586,7 +586,10 @@ test_IPID_count()
 
 = IPv4 - Checksum computation with source routing
 
-no_sr = IP(raw(IP(dst="8.8.8.8")/UDP()/Raw(load=b"Scapy")))
+#no_sr = IP(raw(IP(dst="8.8.8.8")/UDP()/Raw(load=b"Scapy")))
+no_sr_raw = raw(IP(dst="8.8.8.8")/UDP()/Raw(load=b"Scapy"))
+print(no_sr_raw)
+no_sr = IP(no_sr_raw)
 sr = IP(raw(IP(options=[IPOption_SSRR(routers=["1.1.1.1", "8.8.8.8"])])/UDP()/Raw(load=b"Scapy")))
 assert no_sr[UDP].chksum == sr[UDP].chksum
 
