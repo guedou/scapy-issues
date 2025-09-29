@@ -13,12 +13,15 @@ import code
 import getopt
 import glob
 import gzip
+import hashlib
+import hmac
 import importlib
 import io
 import logging
 import os
 import pathlib
 import pickle
+import secrets
 import shutil
 import sys
 import types
@@ -445,6 +448,69 @@ def list_contrib(name=None,  # type: Optional[str]
 #  Session saving/restoring  #
 ##############################
 
+DEFAULT_SIGNATURES_FILE: Optional[str] = str(SCAPY_CONFIG_FOLDER / "signatures.txt")
+DEFAULT_SIGNATURE_KEY_FILE: Optional[str] = str(SCAPY_CONFIG_FOLDER / "signature.key")
+
+
+def file_signature_get_key():
+    KEY_LENGTH = 32
+
+    if not os.path.exists(DEFAULT_SIGNATURE_KEY_FILE):
+        signature_key = secrets.token_bytes(KEY_LENGTH)
+        with open(DEFAULT_SIGNATURE_KEY_FILE, "wb") as fd:
+            fd.write(signature_key)
+    else:
+        with open(DEFAULT_SIGNATURE_KEY_FILE, "rb") as fd:
+            signature_key = fd.read(KEY_LENGTH)
+
+    return signature_key
+
+
+def file_signature_create(filename):
+    if not os.path.exists(filename):
+        raise Scapy_Exception(f"File {filename} does not exist.")
+
+    signature_key = file_signature_get_key()
+    with open(filename, "rb") as fd:
+        signature = hmac.new(signature_key,
+                             fd.read(),
+                             digestmod=hashlib.sha256)
+
+    if not os.path.exists(DEFAULT_SIGNATURES_FILE):
+        with open(DEFAULT_SIGNATURES_FILE, "w") as fd:
+            fd.write(signature.hexdigest() + "\n")
+    else:
+        signature_exists = False
+        with open(DEFAULT_SIGNATURES_FILE, "r") as fd:
+            for line in fd:
+                if line.strip() == signature.hexdigest():
+                    signature_exists = True
+                    break
+
+        if not signature_exists:
+            with open(DEFAULT_SIGNATURES_FILE, "a") as fd:
+                fd.write(signature.hexdigest() + "\n")
+
+
+def file_signature_verify(filename):
+    if not os.path.exists(filename):
+        raise Scapy_Exception(f"File {filename} does not exist.")
+
+    signature_key = file_signature_get_key()
+    signature = hmac.new(signature_key,
+                         open(filename, "rb").read(),
+                         digestmod=hashlib.sha256)
+
+    if not os.path.exists(DEFAULT_SIGNATURES_FILE):
+        return False
+    else:
+        with open(DEFAULT_SIGNATURES_FILE, "r") as fd:
+            for line in fd:
+                if line.strip() == signature.hexdigest():
+                    return True
+    return False
+
+
 def update_ipython_session(session):
     # type: (Dict[str, Any]) -> None
     """Updates IPython session with a custom one"""
@@ -554,6 +620,8 @@ def save_session(fname="", session=None, pickleProto=-1):
     pickle.dump(to_be_saved, f, pickleProto)
     f.close()
 
+    file_signature_create(fname)
+
 
 def load_session(fname=None):
     # type: (Optional[Union[str, None]]) -> None
@@ -565,6 +633,10 @@ def load_session(fname=None):
     from scapy.config import conf
     if fname is None:
         fname = conf.session
+
+    if file_signature_verify(fname) is False:
+        raise Scapy_Exception(f"File signature verification failed for {fname}")
+
     try:
         s = pickle.load(gzip.open(fname, "rb"))
     except IOError:
@@ -592,6 +664,10 @@ def update_session(fname=None):
     from scapy.config import conf
     if fname is None:
         fname = conf.session
+
+    if file_signature_verify(fname) is False:
+        raise Scapy_Exception(f"File signature verification failed for {fname}")
+
     try:
         s = pickle.load(gzip.open(fname, "rb"))
     except IOError:
@@ -639,20 +715,25 @@ def init_session(session_name,  # type: Optional[Union[str, None]]
         except OSError:
             log_loading.info("New session [%s]", session_name)
         else:
-            try:
+            if file_signature_verify(session_name):
                 try:
-                    SESSION = pickle.load(gzip.open(session_name, "rb"))
-                except IOError:
-                    SESSION = pickle.load(open(session_name, "rb"))
-                log_loading.info("Using existing session [%s]", session_name)
-            except ValueError:
-                msg = "Error opening Python3 pickled session on Python2 [%s]"
-                log_loading.error(msg, session_name)
-            except EOFError:
-                log_loading.error("Error opening session [%s]", session_name)
-            except AttributeError:
-                log_loading.error("Error opening session [%s]. "
-                                  "Attribute missing", session_name)
+                    try:
+                        SESSION = pickle.load(gzip.open(session_name, "rb"))
+                    except IOError:
+                        SESSION = pickle.load(open(session_name, "rb"))
+                    log_loading.info("Using existing session [%s]", session_name)
+                except ValueError:
+                    msg = "Error opening Python3 pickled session on Python2 [%s]"
+                    log_loading.error(msg, session_name)
+                except EOFError:
+                    log_loading.error("Error opening session [%s]", session_name)
+                except AttributeError:
+                    log_loading.error("Error opening session [%s]. "
+                                      "Attribute missing", session_name)
+            else:
+                log_loading.error("File signature verification failed for %s",
+                                  session_name)
+                session_name = None
 
         if SESSION:
             if "conf" in SESSION:
