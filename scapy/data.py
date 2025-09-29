@@ -15,7 +15,8 @@ import warnings
 
 from scapy.dadict import DADict, fixname
 from scapy.consts import FREEBSD, NETBSD, OPENBSD, WINDOWS
-from scapy.error import log_loading
+from scapy.main import file_signature_verify, file_signature_create
+from scapy.error import Scapy_Exception, log_loading
 
 # Typing imports
 from typing import (
@@ -308,6 +309,10 @@ def scapy_data_cache(name):
         # type: (DecoratorCallable, str) -> DecoratorCallable
         def load(filename=None):
             # type: (Optional[str]) -> Any
+            if file_signature_verify(cachepath) is False:
+                log_loading.error("File signature verification failed for %s",
+                                  cachepath)
+                return func(filename)
             cache_id = hashlib.sha256((filename or "").encode()).hexdigest()
             if cachepath.exists():
                 try:
@@ -333,6 +338,7 @@ def scapy_data_cache(name):
                 cachepath.parent.mkdir(parents=True, exist_ok=True)
                 with cachepath.open("wb") as fd:
                     pickle.dump(data, fd)
+                file_signature_create(cachepath)
                 return content
             except Exception as ex:
                 log_loading.info(
